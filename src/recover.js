@@ -13,12 +13,14 @@ const u64 = (b, p) => {
   return Number(v);
 };
 
-export function parseTrailer(bytes) {
-  const n = bytes.length;
-  if (n < 64) throw new Error('File is too small to be a voxvb-encrypted file.');
-  const tl = u64(bytes, n - 8);
-  if (tl < 48 || tl > 4096 || tl > n) throw new Error('No voxvb trailer found at the end of this file.');
-  const tr = bytes.subarray(n - tl);
+// `bytes` is the end of the file (at least the last 4 KB, or the whole file); `fileSize` is the
+// total size when only the tail was read.
+export function parseTrailer(bytes, fileSize = bytes.length) {
+  const n = fileSize, k = bytes.length;
+  if (n < 64 || k < 64) throw new Error('File is too small to be a voxvb-encrypted file.');
+  const tl = u64(bytes, k - 8);
+  if (tl < 48 || tl > 4096 || tl > k) throw new Error('No voxvb trailer found at the end of this file.');
+  const tr = bytes.subarray(k - tl);
   let p = 0;
   const l1 = u64(tr, p); p += 8 + l1;
   const l2 = u64(tr, p); p += 8 + l2;
@@ -26,7 +28,7 @@ export function parseTrailer(bytes) {
   const origSize = u64(tr, p + 8);
   const chunk = u64(tr, p + 16);
   if (origSize !== n - tl) throw new Error('Trailer size field does not match the file.');
-  const hasMagic = MAGIC.every((v, i) => bytes[i] === v);
+  const hasMagic = k === n && MAGIC.every((v, i) => bytes[i] === v);
   return { origSize, chunk, trailerLen: tl, hasMagic };
 }
 
@@ -139,9 +141,17 @@ export function recoverJpeg(bytes) {
 }
 
 // "Mockup.jpg.[6ABE22B2][opnrdp@gmail.com].voxvb" -> "Mockup.jpg"
-export function originalName(name) {
+export function strippedName(name) {
   const m = name.match(/^(.*?)\.\[[0-9A-Fa-f]+\](?:\.)?\[[^\]]*\]\.[A-Za-z0-9]+$/);
-  let base = m ? m[1] : name.replace(/\.voxvb$/i, '');
+  return m ? m[1] : name.replace(/\.voxvb$/i, '');
+}
+
+export const VIDEO_EXT = /\.(mp4|m4v|mov|3gp|3g2)$/i;
+export const isVideoName = (name) => VIDEO_EXT.test(strippedName(name));
+
+export function originalName(name) {
+  let base = strippedName(name);
+  if (VIDEO_EXT.test(base)) return base;
   if (!/\.(jpe?g)$/i.test(base)) base += '.jpg';
   return base;
 }
